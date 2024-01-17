@@ -1,6 +1,5 @@
 const express = require('express');
 const http = require('http');
-const app = express();
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
@@ -35,9 +34,10 @@ function jumpConsistentHash(key, numBuckets) {
 
 class Node {
   constructor(port){
-    this.server = http.createServer(express); 
+    this.app = express();
+    this.server = http.createServer(this.app); 
     this.connectErrorCount = 0;
-    this.bootstrap = isLocal ? ["http://localhost:3000", "http://localhost:3001"] : ["https://valoria-net.onrender.com"]
+    this.bootstrap = isLocal ? ["http://localhost:3000", "http://localhost:3001"] : ["http://10.104.73.83:10000"]
     this.id = uuidv4();
     this.conns = {};
     this.totalNodes = 1;
@@ -57,6 +57,9 @@ class Node {
       })
       this.connectWithBoostrap()
     });
+    this.app.get("/", (req, res) => {
+      res.send("Valoria Node Running on Port " + this.port)
+    })
   }
 
   determineServerUrl(port){
@@ -190,17 +193,40 @@ if(isLocal){
     //   }
     // }
 
-    // const groups = {}
-    // for(let j=0;j<node.nodes.length;j++){
-    //   const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
-    //   if(!groups[groupIndex]) groups[groupIndex] = []
-    //   groups[groupIndex].push(node.nodes[j]);
-    // }
-    // console.log(groups)
+    const groups = {}
+    for(let j=0;j<node.nodes.length;j++){
+      const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
+      if(!groups[groupIndex]) groups[groupIndex] = []
+      groups[groupIndex].push(node.nodes[j]);
+    }
+    console.log(groups)
   }, 1000)
 
 
 } else {
   const node = new Node(process.env.PORT);
+
+  setInterval(() => {
+    const i = 10 * Math.random() << 0;
+
+    // for(let j=0;j<1000;j++){
+    //   const randId = uuidv4();
+    //   const groupIndex = jumpConsistentHash(randId, node.getGroupTotal());
+    //   if(groupIndex == 0){
+    //     console.log("0 INDEX NEEDED");
+    //   } else {
+    //     // console.log(groupIndex)
+    //   }
+    // }
+
+    const groups = {}
+    for(let j=0;j<node.nodes.length;j++){
+      const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
+      if(!groups[groupIndex]) groups[groupIndex] = []
+      groups[groupIndex].push(node.nodes[j]);
+    }
+    console.log(groups)
+  }, 1000)
+
   console.log(node)
 }
