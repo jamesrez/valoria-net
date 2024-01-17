@@ -37,7 +37,7 @@ class Node {
     this.app = express();
     this.server = http.createServer(this.app); 
     this.connectErrorCount = 0;
-    this.bootstrap = isLocal ? ["http://localhost:3000", "http://localhost:3001"] : ["http://10.104.73.83:10000"]
+    this.bootstrap = isLocal ? ["http://localhost:3000"] : ["http://10.104.73.83:10000"]
     this.id = uuidv4();
     this.conns = {};
     this.totalNodes = 1;
@@ -117,20 +117,23 @@ class Node {
   async connectToNode(url){
     const self = this;
     return new Promise(async (res, rej) => {
-      if(self.conns[url]) return res(self.conns[url]);
-      const ws = new WebSocket(`${url}?url=${this.url}`);
-      ws.on('open', () => {
-        console.log(`${self.url} connected to ${url}`);
-        self.conns[url] = {ws, url};
-        ws.on("message", (message) => self.handleWSMsg(self.conns[url], message))       
-        res(self.conns[url]);
-      });
-      ws.on('error', (error) => {
-        console.error(`${this.url}: Error connecting to ${url}: ${error.message}`);
-        rej(error)
-      });
+      try {
+        if(self.conns[url]) return res(self.conns[url]);
+        const ws = new WebSocket(`${url}?url=${this.url}`);
+        ws.on('open', () => {
+          console.log(`${self.url} connected to ${url}`);
+          self.conns[url] = {ws, url};
+          ws.on("message", (message) => self.handleWSMsg(self.conns[url], message))       
+          res(self.conns[url]);
+        });
+        ws.on('error', (error) => {
+          console.error(`${this.url}: Error connecting to ${url}: ${error.message}`);
+          rej(error)
+        });
+      } catch(e){
+        rej(e)
+      }
     })
-
   }
 
   async connectWithBoostrap(){
@@ -145,7 +148,13 @@ class Node {
     } catch(e){
       this.connectErrorCount += 1;
       this.bootstrap.splice(this.bootstrap.indexOf(url), 1);
-      if(this.bootIncluded) this.bootstrap.push(this.url)
+      if(this.bootIncluded){
+        this.bootstrap.push(this.url)
+        if(this.bootstrap.length == 1){
+          console.log("This server is the first bootstrap node that's online")
+          return;
+        }
+      } 
       if(this.connectErrorCount > 100){
         console.log(this.url + ": Giving up, couldn't connect to the bootstrap nodes, reset your server and try again if you want.")
       } else {
@@ -196,7 +205,7 @@ if(isLocal){
   }
 
   setInterval(() => {
-    const i = 10 * Math.random() << 0;
+    const i = nodes.length * Math.random() << 0;
     const node = nodes[i];
 
     // for(let j=0;j<1000;j++){
@@ -221,28 +230,4 @@ if(isLocal){
 
 } else {
   const node = new Node(process.env.PORT);
-
-  setInterval(() => {
-    const i = 10 * Math.random() << 0;
-
-    // for(let j=0;j<1000;j++){
-    //   const randId = uuidv4();
-    //   const groupIndex = jumpConsistentHash(randId, node.getGroupTotal());
-    //   if(groupIndex == 0){
-    //     console.log("0 INDEX NEEDED");
-    //   } else {
-    //     // console.log(groupIndex)
-    //   }
-    // }
-
-    const groups = {}
-    for(let j=0;j<node.nodes.length;j++){
-      const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
-      if(!groups[groupIndex]) groups[groupIndex] = []
-      groups[groupIndex].push(node.nodes[j]);
-    }
-    console.log(groups)
-  }, 1000)
-
-  console.log(node)
 }
