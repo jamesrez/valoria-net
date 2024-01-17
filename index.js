@@ -37,13 +37,13 @@ class Node {
     this.app = express();
     this.server = http.createServer(this.app); 
     this.connectErrorCount = 0;
-    this.bootstrap = isLocal ? ["http://localhost:3000"] : ["http://10.104.73.83:10000"]
+    this.bootstrap = isLocal ? ["http://localhost:3000"] : ["https://valoria-net.onrender.com"]
     this.id = uuidv4();
     this.conns = {};
     this.totalNodes = 1;
     this.syncing = false;
     this.port = port; // Store the port for the WebSocket server
-    this.url = this.determineServerUrl(port);
+    this.url = process.env.URL || this.determineServerUrl(port);
     this.nodes = [this.url]
     this.groups = [[this.url]];
     const self = this;
@@ -52,6 +52,7 @@ class Node {
       self.wss = new WebSocket.Server({ server: this.server });
       self.wss.on("connection", (ws, req) => {
         const query = querystring.parse(req.url);
+        // TODO: VERIFY URL IS THE REAL CONNECTION URL
         const url = query["/?url"];
         self.conns[url] = {ws, url}
         ws.on('message', (message) => self.handleWSMsg(self.conns[url], message))
