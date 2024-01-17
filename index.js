@@ -45,6 +45,7 @@ class Node {
     this.port = port; // Store the port for the WebSocket server
     this.url = this.determineServerUrl(port);
     this.nodes = [this.url]
+    this.groups = [[this.url]];
     const self = this;
     this.server.listen(port, () => {
       console.log("Valoria Node Running on Port " + port);
@@ -58,7 +59,11 @@ class Node {
       this.connectWithBoostrap()
     });
     this.app.get("/", (req, res) => {
-      res.send("Valoria Node Running on Port " + this.port)
+      res.send({
+        url: this.url,
+        totalNodes: this.totalNodes,
+        groups: this.groups
+      })
     })
   }
 
@@ -153,6 +158,7 @@ class Node {
     const self = this;
     this.syncing = true;
     self.sync = setInterval(async () => {
+
       const group = [];
       const groupTotal = self.getGroupTotal();
       this.groupId = jumpConsistentHash(self.url, groupTotal);
@@ -163,6 +169,16 @@ class Node {
           ws.send(JSON.stringify({event: "Sync Group Nodes", from: self.url, nodes: this.nodes, totalNodes: this.totalNodes }))
         }
       }
+
+      const groups = {}
+      for(let j=0;j<self.nodes.length;j++){
+        const groupIndex = jumpConsistentHash(self.nodes[j], self.getGroupTotal());
+        if(!groups[groupIndex]) groups[groupIndex] = []
+        groups[groupIndex].push(self.nodes[j]);
+        groups[groupIndex].sort()
+      }
+      self.groups = groups
+
     }, 1000)
   }
 
