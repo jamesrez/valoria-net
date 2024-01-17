@@ -37,7 +37,7 @@ class Node {
   constructor(port){
     this.server = http.createServer(express); 
     this.connectErrorCount = 0;
-    this.bootstrap = isLocal ? ["http://localhost:3000", "http://localhost:3001"] : ["https://valoria.net"]
+    this.bootstrap = isLocal ? ["http://localhost:3000", "http://localhost:3001"] : ["https://valoria-net.onrender.com"]
     this.id = uuidv4();
     this.conns = {};
     this.totalNodes = 1;
