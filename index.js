@@ -28,7 +28,7 @@ function jumpConsistentHash(key, numBuckets) {
   while (j < numBuckets) {
       b = j;
       keyBigInt = (keyBigInt * 2862933555777941757n) % (2n ** 64n) + 1n;
-      j = BigInt(Math.floor((Number(b) + 1) * Number(1n << 31n) / Number((keyBigInt >> 32n) + 1n)));
+      j = BigInt(Math.floor((Number(b) + 1) * Number(1n << 31n) / Number((keyBigInt >> 33n) + 1n)));
   }
   return (Number(b));
 }
@@ -190,15 +190,17 @@ if(isLocal){
     //   }
     // }
 
-    const groups = {}
-    for(let j=0;j<node.nodes.length;j++){
-      const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
-      if(!groups[groupIndex]) groups[groupIndex] = []
-      groups[groupIndex].push(node.nodes[j]);
-    }
-    console.log(groups)
+    // const groups = {}
+    // for(let j=0;j<node.nodes.length;j++){
+    //   const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
+    //   if(!groups[groupIndex]) groups[groupIndex] = []
+    //   groups[groupIndex].push(node.nodes[j]);
+    // }
+    // console.log(groups)
   }, 1000)
 
+
 } else {
-  const node = new Node(process.env.PORT)
+  const node = new Node(process.env.PORT);
+  console.log(node)
 }
