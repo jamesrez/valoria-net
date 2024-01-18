@@ -15,3 +15,8 @@ For local simulation of 100 nodes
 For adding a real node to the mainnet in production make sure to set the host's environment variable `URL` to be the public url of your node.
 
 ![alt text](https://i.ibb.co/dQ8Z5xN/Screen-Shot-2024-01-18-at-11-40-12-AM.png)
+
+
+Here's two nodes I have setup
+1. https://valoria-net.onrender.com 
+2. https://valora-net-2.onrender.com
