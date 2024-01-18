@@ -46,16 +46,29 @@ class Node {
     this.url = process.env.URL || this.determineServerUrl(port);
     this.nodes = [this.url]
     this.groups = [[this.url]];
+    this.connectingTo = {};
     const self = this;
     this.server.listen(port, () => {
       console.log("Valoria Node Running on Port " + port);
       self.wss = new WebSocket.Server({ server: this.server });
       self.wss.on("connection", (ws, req) => {
         const query = querystring.parse(req.url);
-        // TODO: VERIFY URL IS THE REAL CONNECTION URL
-        const url = query["/?url"];
-        self.conns[url] = {ws, url}
-        ws.on('message', (message) => self.handleWSMsg(self.conns[url], message))
+        if(query["/?connectCheck"] && self.connectingTo[query["/?connectCheck"]]){
+          ws.send(JSON.stringify({event: "URL Confirm", url: self.url, pass: true}))
+        } else {
+          const url = query["/?url"];
+          const wsCheck = new WebSocket(`${url}?connectCheck=${self.url}`)
+          wsCheck.on('open', () => {
+            wsCheck.on("message", (message) => {
+              const data = JSON.parse(message);
+              if(data.event == "URL Confirm" && data.pass && url == data.url){
+                self.conns[url] = {ws, url}
+                ws.on('message', (message) => self.handleWSMsg(self.conns[url], message))
+                ws.send(JSON.stringify({event: "Connected to node", url: self.url}))
+              }
+            })       
+          });
+        }
       })
       this.connectWithBoostrap()
     });
@@ -79,10 +92,13 @@ class Node {
     return `http://localhost:${port}`;
   }
 
-  handleWSMsg(conn, message){
+  handleWSMsg(conn, message, res=null){
     const data = JSON.parse(message);
     const ws = conn.ws;
     const url = conn.url;
+    if(data.event == "Connected to node" && this.connectingTo[data.url]){
+      if(res) res(conn);
+    }
     if (data.event === 'ping') {
       ws.send(JSON.stringify({ type: 'pong', id: data.id }));
     }
@@ -102,16 +118,13 @@ class Node {
     }
     if(data.event == "Sync Group Nodes"){
       const groupTotal = this.getGroupTotal();
-      const groupId = jumpConsistentHash(this.url, groupTotal);
-      // if(groupId == jumpConsistentHash(url, groupTotal)){
-        for(let i=0;i<data.nodes.length;i++){
-          if(!this.nodes.includes(data.nodes[i])){
-            this.nodes.push(data.nodes[i])
-            this.totalNodes += 1;
-          }
+      for(let i=0;i<data.nodes.length;i++){
+        if(!this.nodes.includes(data.nodes[i])){
+          this.nodes.push(data.nodes[i])
+          this.totalNodes += 1;
         }
-        ws.send(JSON.stringify({ event: 'Receive All Nodes', nodes: this.nodes, total: this.totalNodes, from: this.url }));
-      // }
+      }
+      ws.send(JSON.stringify({ event: 'Receive All Nodes', nodes: this.nodes, total: this.totalNodes, from: this.url }));
     }
   }
 
@@ -120,15 +133,15 @@ class Node {
     return new Promise(async (res, rej) => {
       try {
         if(self.conns[url]) return res(self.conns[url]);
-        const ws = new WebSocket(`${url}?url=${this.url}`);
+        self.connectingTo[url] = true;
+        const ws = new WebSocket(`${url}?url=${self.url}`);
         ws.on('open', () => {
           console.log(`${self.url} connected to ${url}`);
           self.conns[url] = {ws, url};
-          ws.on("message", (message) => self.handleWSMsg(self.conns[url], message))       
-          res(self.conns[url]);
+          ws.on("message", (message) => self.handleWSMsg(self.conns[url], message, res))       
         });
         ws.on('error', (error) => {
-          console.error(`${this.url}: Error connecting to ${url}: ${error.message}`);
+          console.error(`${self.url}: Error connecting to ${url}: ${error.message}`);
           rej(error)
         });
       } catch(e){
@@ -153,6 +166,9 @@ class Node {
         this.bootstrap.push(this.url)
         if(this.bootstrap.length == 1){
           console.log("This server is the first bootstrap node that's online")
+          if(!this.syncing){
+            this.startSync()
+          }
           return;
         }
       } 
@@ -208,24 +224,7 @@ if(isLocal){
   setInterval(() => {
     const i = nodes.length * Math.random() << 0;
     const node = nodes[i];
-
-    // for(let j=0;j<1000;j++){
-    //   const randId = uuidv4();
-    //   const groupIndex = jumpConsistentHash(randId, node.getGroupTotal());
-    //   if(groupIndex == 0){
-    //     console.log("0 INDEX NEEDED");
-    //   } else {
-    //     // console.log(groupIndex)
-    //   }
-    // }
-
-    const groups = {}
-    for(let j=0;j<node.nodes.length;j++){
-      const groupIndex = jumpConsistentHash(node.nodes[j], node.getGroupTotal());
-      if(!groups[groupIndex]) groups[groupIndex] = []
-      groups[groupIndex].push(node.nodes[j]);
-    }
-    console.log(groups)
+    console.log(node.groups)
   }, 1000)
 
 
