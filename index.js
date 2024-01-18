@@ -144,6 +144,7 @@ class Node {
 
   async connectToNode(url){
     const self = this;
+    if(url == self.url) return;
     return new Promise(async (res, rej) => {
       try {
         if(self.conns[url]) return res(self.conns[url]);
