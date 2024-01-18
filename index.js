@@ -1,8 +1,6 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const { v4: uuidv4 } = require('uuid');
-const crypto = require('crypto');
 const querystring = require('node:querystring'); 
 const defaultPort = 3000;
 const isLocal = process.env.PORT ? false : true;
@@ -38,7 +36,6 @@ class Node {
     this.server = http.createServer(this.app); 
     this.connectErrorCount = 0;
     this.bootstrap = isLocal ? ["http://localhost:3000"] : ["https://valoria-net.onrender.com"]
-    this.id = uuidv4();
     this.conns = {};
     this.totalNodes = 1;
     this.syncing = false;
