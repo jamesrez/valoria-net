@@ -70,14 +70,6 @@ class Node {
           });
         }
       })
-      // self.wss.on('close', (ws) => {
-      //   // Find the disconnected node's URL
-      //   console.log("node disconnected");
-      //   const disconnectedNodeUrl = Object.keys(this.conns).find(url => this.conns[url].ws === ws);
-      //   if (disconnectedNodeUrl) {
-      //     self.removeNode(disconnectedNodeUrl);
-      //   }
-      // });
       this.connectWithBoostrap()
     });
     this.app.get("/", (req, res) => {
@@ -305,7 +297,7 @@ if(isLocal){
 
   setInterval(() => {
 
-    //Get a random node
+    //Get a random node and log it's state
     const i = nodes.length * Math.random() << 0;
     const node = nodes[i];
     console.log(`${node.url} - Total Nodes: ${node.totalNodes}, Total Groups: ${Object.keys(node.groups).length}`)
