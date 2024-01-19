@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const querystring = require('node:querystring'); 
+const {createHash} = require('node:crypto');
 const defaultPort = 3000;
 const isLocal = process.env.PORT ? false : true;
 
@@ -44,6 +45,9 @@ class Node {
     this.nodes = [this.url]
     this.groups = {}
     this.connectingTo = {};
+    this.data = {};
+    this.pointers = {};
+    this.promises = {};
     const self = this;
     this.server.listen(port, () => {
       console.log("Valoria Node Running on Port " + port);
@@ -92,7 +96,7 @@ class Node {
     return `http://localhost:${port}`;
   }
 
-  handleWSMsg(conn, message, res=null){
+  async handleWSMsg(conn, message, res=null){
     const data = JSON.parse(message);
     if(!conn) return;
     const ws = conn.ws;
@@ -126,6 +130,77 @@ class Node {
       }
       ws.send(JSON.stringify({ event: 'Receive All Nodes', nodes: this.nodes, total: this.totalNodes, from: this.url }));
     }
+    if(data.event == "Sync Group Data"){
+      if(data.dataId && data.data){
+        const groupCount = Object.keys(this.groups).length;
+        if(this.groups[this.groupId].includes(url) && jumpConsistentHash(data.dataId, groupCount) == this.groupId){
+          console.log(`${this.url} is going to store ${data.dataId}`)
+          this.data[data.dataId] = data.data;
+          this.pointers[data.dataId] = this.groups[this.groupId];
+        }
+      }
+    }
+    if(data.event == "Store Data"){
+      if(data.dataId && data.data){
+        this.storeData(data.dataId, data.data);
+      }
+    }
+    if(data.event == "Store Data Pointer"){
+      if(data.dataId && data.pointer){
+        const groupCount = Object.keys(this.groups).length;
+        if(jumpConsistentHash(data.dataId, groupCount) == this.groupId){
+          this.pointers[data.dataId] = data.pointer;
+          console.log(`${this.url} is saving the pointer for ${data.dataId}`)
+          for(let i=0;i<this.groups[this.groupId].length;i++){
+            const url = this.groups[this.groupId][i];
+            if(url == this.url) continue;
+            const conn = await this.connectToNode(url);
+            conn.ws.send(JSON.stringify({
+              event: "Sync Group Data Pointer",
+              dataId: data.dataId, 
+              pointer: data.pointer
+            }))
+          }
+        }
+      }
+    }
+    if(data.event == "Sync Group Data Pointer"){
+      if(data.dataId && data.pointer){
+        const groupCount = Object.keys(this.groups).length;
+        if(this.groups[this.groupId].includes(url) && jumpConsistentHash(data.dataId, groupCount) == this.groupId){
+          console.log(`${this.url} is saving the pointer for ${data.dataId}`)
+          this.pointers[data.dataId] = data.pointer;
+        }
+      }
+    }
+    if(data.event == "Request Data"){
+      if(data.dataId && this.data[data.dataId]){
+        ws.send(JSON.stringify({
+          event: "Receive Data",
+          dataId: data.dataId,
+          data: this.data[data.dataId]
+        }))
+      }
+    }
+    if(data.event == "Request Data Pointer"){
+      if(data.dataId && this.pointers[data.dataId]){
+        ws.send(JSON.stringify({
+          event: "Receive Data Pointer",
+          dataId: data.dataId,
+          pointer: this.pointers[data.dataId]
+        }))
+      }
+    }
+    if(data.event == "Receive Data"){
+      if(this.promises[`Request Data ${data.dataId}`]){
+        this.promises[`Request Data ${data.dataId}`].res(data.data)
+      }
+    }
+    if(data.event == "Receive Data Pointer"){
+      if(this.promises[`Request Data Pointer ${data.dataId}`]){
+        this.promises[`Request Data Pointer ${data.dataId}`].res(data.pointer)
+      }
+    }
     if (data.event === 'Node Disconnected') {
       this.removeNode(data.url);
     }
@@ -141,7 +216,7 @@ class Node {
         const ws = new WebSocket(`${url}?url=${self.url}`);
         ws.on('open', () => {
           if(!self.conns[url]){
-            console.log(`${self.url} connected to ${url}`);
+            // console.log(`${self.url} connected to ${url}`);
           }
           self.conns[url] = {ws, url, alive: 3};
           ws.on("message", (message) => self.handleWSMsg(self.conns[url], message, res))       
@@ -189,7 +264,7 @@ class Node {
   removeNode(url) {
     const index = this.nodes.indexOf(url);
     if (index > -1) {
-      console.log(this.url + " removing node " + url)
+      // console.log(this.url + " removing node " + url)
       delete this.conns[url];
       this.nodes.splice(index, 1);
       this.totalNodes -= 1;
@@ -208,12 +283,10 @@ class Node {
     this.syncing = true;
     self.sync = setInterval(async () => {
       // Tell all the nodes in your group what nodes you have
-      const group = [];
       const groupTotal = self.getGroupTotal();
       this.groupId = jumpConsistentHash(self.url, groupTotal);
       for(let i=0;i<self.nodes.length;i++){
         if(self.nodes[i] !== self.url && jumpConsistentHash(self.nodes[i], groupTotal) == this.groupId){
-          group.push(self.nodes[i]);
           const ws = (await self.connectToNode(self.nodes[i])).ws;
           ws.send(JSON.stringify({event: "Sync Group Nodes", from: self.url, nodes: this.nodes, totalNodes: this.totalNodes }))
         }
@@ -245,15 +318,22 @@ class Node {
 
       const nearbyNodes = [
         ...(self.groups[self.groupId] ? self.groups[self.groupId] : []),
+        ...(self.groups[self.groupId - 1] ? self.groups[self.groupId - 1] : []),
+        ...(self.groups[self.groupId + 1] ? self.groups[self.groupId + 1] : []),
       ]
-      if(self.groups[self.groupId - 1]?.length > 0){
-        nearbyNodes.push(self.groups[self.groupId - 1][self.groups[self.groupId - 1].length * Math.random << 0])
-      }
-      if(self.groups[self.groupId + 1]?.length > 0){
-        nearbyNodes.push(self.groups[self.groupId + 1][self.groups[self.groupId + 1].length * Math.random << 0])
-      }
+      // if(self.groups[self.groupId - 1]?.length > 0){
+      //   nearbyNodes.push(self.groups[self.groupId - 1][self.groups[self.groupId - 1].length * Math.random << 0])
+      // }
+      // if(self.groups[self.groupId + 1]?.length > 0){
+      //   nearbyNodes.push(self.groups[self.groupId + 1][self.groups[self.groupId + 1].length * Math.random << 0])
+      // }
       for(let i=0;i<nearbyNodes.length;i++){
-        await self.connectToNode(nearbyNodes[i])
+        try {
+          const conn = await self.connectToNode(nearbyNodes[i]);
+          conn?.ws?.send(JSON.stringify({event: "Sync Group Nodes", from: self.url, nodes: self.nodes, totalNodes: self.totalNodes }))
+        } catch(e){
+
+        }
       }
 
       for(let i=0;i<self.groups[self.groupId].length;i++){
@@ -268,6 +348,27 @@ class Node {
           self.removeNode(url)
         }
       }
+
+
+      //SYNC DATA POINTERS WITH RESPONSIBLE GROUP IF NEEDED
+      const dataIds = Object.keys(self.pointers);
+      const groupCount = Object.keys(self.groups).length;
+      for(let i=0;i<dataIds.length;i++){
+        const groupId = jumpConsistentHash(dataIds[i], groupCount)
+        if(groupId !== self.groupId){
+          console.log(`${self.url} no longer responsible for pointer ${dataIds[i]}`)
+          const group = self.groups[groupId];
+          const url = group[group.length * Math.random() << 0];
+          const conn = await self.connectToNode(url);
+          conn.ws.send(JSON.stringify({
+            event: "Store Data Pointer",
+            pointer: self.pointers[dataIds[i]],
+            dataId: dataIds[i]
+          }))
+          delete self.pointers[dataIds[i]];
+        }
+      }
+
 
       if(self.nodes.length == 1){
         self.stopSync();
@@ -287,13 +388,76 @@ class Node {
     return Math.floor(this.totalNodes / nodeToGroupRatio) + ((this.totalNodes % nodeToGroupRatio == 0) ? 0 : 1)
   }
 
+  storeData = async (dataId, data) => {
+    const self = this;
+    if(jumpConsistentHash(dataId, self.getGroupTotal()) == self.groupId){
+      self.data[dataId] = data;
+      self.pointers[dataId] = self.groups[self.groupId];
+      console.log(`${self.url} is going to store ${dataId}`);
+      for(let i=0;i<self.groups[self.groupId].length;i++){
+        const url = self.groups[self.groupId][i];
+        if(url == self.url) continue;
+        const conn = await self.connectToNode(url);
+        conn.ws.send(JSON.stringify({
+          event: "Sync Group Data",
+          data, dataId
+        }))
+      }
+    } else {
+      const group = self.groups[jumpConsistentHash(dataId, self.getGroupTotal())];
+      const url = group[group.length * Math.random() << 0];
+      const conn = await self.connectToNode(url);
+      conn.ws.send(JSON.stringify({
+        event: "Store Data",
+        data, dataId
+      }))
+    }
+  }
+
+  getData = async (dataId) => {
+    return new Promise(async (res, rej) => {
+      const self = this;
+      if(self.data[dataId]) return res(self.data[dataId]);
+      let url;
+      if(self.pointers[dataId]){
+        url = self.pointers[dataId][self.pointers[dataId].length * Math.random() << 0];
+      } else {
+        const pointer = await self.getDataPointer(dataId);
+        url = pointer[pointer.length * Math.random() << 0]
+      }
+      const conn = await self.connectToNode(url);
+      self.promises[`Request Data ${dataId}`] = {res, rej};
+      conn.ws.send(JSON.stringify({
+        event: "Request Data",
+        dataId
+      }))
+    })
+  }
+
+  getDataPointer = async (dataId) => {
+    return new Promise(async (res, rej) => {
+      const self = this;
+      if(self.pointers[dataId]) return res(self.pointers[dataId]);
+      const groupId = jumpConsistentHash(dataId, Object.keys(self.groups).length);
+      const group = self.groups[groupId];
+      const url = group[group.length * Math.random() << 0];
+      const conn = await self.connectToNode(url);
+      self.promises[`Request Data Pointer ${dataId}`] = {res, rej};
+      conn.ws.send(JSON.stringify({
+        event: "Request Data Pointer",
+        dataId
+      }))
+    })
+  }
+
 }
 
 if(isLocal){
 
   // Local example. Create 100 nodes.
   let nodes = []
-  for(let i=0;i<100;i++){
+  let startNodeCount = 50;
+  for(let i=0;i<startNodeCount;i++){
     nodes.push(new Node(defaultPort + i));
   }
 
@@ -307,16 +471,36 @@ if(isLocal){
   }, 1000)
 
   setInterval(() => {
-    //Remove a random node for simulation purposes
+    //Remove or add a random node for simulation purposes
+    // if(Math.random() >= 0.5){
+    //   nodes.push(new Node(defaultPort + nodes.length));
+    // } 
+    // else {
+      const i = nodes.length * Math.random() << 0;
+      const node = nodes[i];
+      console.log(`${node.url} HAS DISCONNECTED`)
+      node.wss.clients.forEach(function each(ws) {
+        return ws.terminate();
+      });
+      node.stopSync();
+      nodes.splice(i, 1)
+    // }
+  }, 5000)
+
+  setTimeout(() => {
     const i = nodes.length * Math.random() << 0;
     const node = nodes[i];
-    console.log(`${node.url} HAS DISCONNECTED`)
-    node.wss.clients.forEach(function each(ws) {
-      return ws.terminate();
-    });
-    node.stopSync();
-    nodes.splice(i, 1)
-  }, 5000)
+    const data = "THIS IS A PIECE OF TEST DATA WRITTEN BY " + node.url;
+    const dataId = createHash('sha256').update(data).digest('hex');
+    console.log(`${node.url} WANTS TO STORE ${dataId}`);
+    node.storeData(dataId, data);
+
+    setInterval(async () => {
+      const data = await node.getData(dataId);
+      console.log(`GOT DATA FOR ${dataId}: ${data}`);
+    }, 10000)
+
+  }, 7500)
 
 
 } else {
