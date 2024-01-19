@@ -100,7 +100,7 @@ class Node {
     if(data.event == "Connected to node" && this.connectingTo[data.url]){
       if(res) res(conn);
     }
-    if (data.event === 'Alive') {
+    if (data.event == 'Alive') {
       this.conns[url].alive += this.conns[url].alive < 3 ? 1 : 0;
     }
     if(data.event == "Request All Nodes"){
@@ -267,6 +267,11 @@ class Node {
         } else {
           self.removeNode(url)
         }
+      }
+
+      if(self.nodes.length == 1){
+        self.stopSync();
+        await this.connectWithBoostrap()
       }
 
     }, 1000)
